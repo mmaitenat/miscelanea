@@ -1,0 +1,104 @@
+---
+title: "Alignment qualities"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The mapping quality of a short-read aligner represents the probability that a read is aligned in the wrong place. More specifically, it is the phred-scaled posterior probability that the mapping position of this read is incorrect. The probability $p$ is calculated as:
+
+$p = 10^{\frac{-q}{10}}$
+
+where $q$ is the quality value, i.e., the MAPQ value in the SAM/BAM files.
+
+For instance, if an alignment has a MAPQ=40, then, the probability that the mapping is incorrect is calculated as:
+
+$p = 10^{\frac{-40}{10}}$
+
+which is:
+
+```{r}
+calc_mapqual <- function(MAPQ) {
+  p <- 10**(-MAPQ/10)
+  return(p)
+}
+
+calc_mapqual(40)
+```
+
+If we know that the probability of correctly mapping some random read was 0.99, then the MAPQ score should be:
+
+```{r}
+calc_MAPQ <- function(p_correct) {
+  p_incorrect <- 1 - p_correct
+  MAPQ <- -10*log10(p_incorrect)
+  return(MAPQ)
+}
+
+calc_MAPQ(0.99)
+```
+
+### Mapping qualities when considering base calling errors
+
+To model base calling errors we can use the Binomial distribution. The binomial distribution is a discrete distribution $B(n, p)$ that models the number of successes in a sequence of $n$ independent experiments or trials, each having a success probability $p$. Then, we can model base calling errors of a read of length 100 nt, and a base calling error probability of 0.01 (1 error in 100 base-pairs) with $B(100, 0.01)$ (or $B(100, 0.99)$, depending on whether we want to model correct or incorrect base calling). Let us visualize the probability mass function of that distribution:
+
+```{r, warning=FALSE}
+library(ggplot2)
+n <- 100
+p <- 0.01
+x <- 0:n
+df <- data.frame(x = x,
+                 y = dbinom(x, n, p))
+ggplot(df, aes(x = x, y = y)) +
+  geom_bar(stat = "identity", fill = "#ffd592") +
+  ggtitle("PMF for B(100, 0.01)") +
+  theme_minimal() +
+  ylab("Probability")
+
+```
+
+We can see that there is a extremely low probability of making more than a few errors. Indeed, using this distribution, we can estimate multiple values:
+
+What is the probability of seeing no errors in the read?
+
+```{r}
+dbinom(0, 100, 0.01) # for discrete distributions, the "d" function is the probability mass function
+#or
+dbinom(100, 100, 0.99)
+```
+
+And the probability of seeing 1 error?
+
+```{r}
+dbinom(1, 100, 0.01)
+```
+
+And two errors?
+
+```{r}
+dbinom(2, 100, 0.01)
+```
+
+Going back to mapping alignments, we have that the posterior probability that an alignment that aligns to a single site with zero mismatches (but aligns to other sites too, with mismatches, though) is correct is given by:
+
+$\frac{P_{zero\;base\;errors}}{P_{zero\;base\;errors} + 5 \cdot P_{one\;base\;error}}$
+
+In our example of a read of length 100 and an error probability of 0.01, we have that this posterior probability is:
+
+```{r}
+num <- dbinom(0, 100, 0.01)
+denom <- dbinom(0, 100, 0.01) + 5*dbinom(1, 100, 0.01)
+num/denom
+```
+
+If the base-calling quality is increased and, instead of 0.01, the error probability is 0.001, the posterior probability increases:
+
+```{r}
+num <- dbinom(0, 100, 0.001)
+denom <- dbinom(0, 100, 0.001) + 5*dbinom(1, 100, 0.001)
+num/denom
+```
+
+Note that this calculation here does not take into account base qualities and assumes that all bases have the same probability of being wrong, which in reality does not generally hold.
